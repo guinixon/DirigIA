@@ -15,9 +15,12 @@ serve(async (req) => {
     const file = formData.get('file') as File;
     if (!file) throw new Error('Arquivo não enviado');
 
-    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    // Logs para debug de performance
+    console.log(`Recebido: ${file.name} | Tipo: ${file.type} | Tamanho: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
+
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     
-    // Auth do Supabase
+    // Extração do Usuário
     const authHeader = req.headers.get('authorization');
     const jwt = authHeader?.replace('Bearer ', '');
     const payload = JSON.parse(atob(jwt?.split('.')[1] || ""));
@@ -28,60 +31,83 @@ serve(async (req) => {
     const isPdf = file.type === 'application/pdf';
 
     let extractedText = "";
-    
-    // 1. Tenta extrair texto (Opcional, não trava mais se falhar)
+    let base64Data = "";
+
+    // 1. TENTATIVA DE EXTRAÇÃO DE TEXTO (Para PDFs digitais)
     if (isPdf) {
       try {
         const pdfData = await pdfParse(Buffer.from(bytes));
         extractedText = pdfData.text?.trim() || "";
       } catch (e) {
-        console.log("PDF escaneado detectado. Prosseguindo com análise visual...");
+        console.log("PDF sem camada de texto técnica, mudando para análise visual.");
       }
     }
 
-    // 2. Prepara o Base64 para o Gemini
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
+    // 2. CONVERSÃO PARA BASE64 (Para imagens ou PDFs escaneados)
+    // Se o texto for muito curto ou inexistente, usamos a visão computacional
+    if (!extractedText || extractedText.length < 50 || !isPdf) {
+      let binary = "";
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      base64Data = btoa(binary);
     }
-    const base64Data = btoa(binary);
 
-    // 3. Chamada Gemini 1.5 Flash (Suporta PDF nativamente)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    // 3. MONTAGEM DO PAYLOAD OPENAI
+    const messages = [
+      { 
+        role: 'system', 
+        content: 'Você é um especialista em multas brasileiras. Extraia os dados e responda APENAS em JSON. Use null para campos vazios.' 
+      }
+    ];
 
-    const response = await fetch(url, {
+    const userContent: any[] = [{ type: 'text', text: 'Analise este documento de trânsito e extraia os dados estruturados.' }];
+
+    if (extractedText && extractedText.length > 50) {
+      // Se tivermos texto, enviamos o texto (mais barato e rápido)
+      userContent.push({ type: 'text', text: `Texto extraído do documento: ${extractedText}` });
+    } else {
+      // Se for imagem ou PDF escaneado (como o do Guilherme), enviamos a imagem
+      userContent.push({ 
+        type: 'image_url', 
+        image_url: { 
+          url: `data:${isPdf ? 'application/pdf' : file.type};base64,${base64Data}`,
+          detail: "low" // 'low' economiza muitos tokens e geralmente basta para OCR
+        } 
+      });
+    }
+
+    messages.push({ role: 'user', content: userContent as any });
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: "Você é um especialista em multas brasileiras. Extraia os dados e responda APENAS em JSON. Se não for multa, isTrafficFine deve ser false." },
-            {
-              inline_data: {
-                mime_type: isPdf ? "application/pdf" : file.type,
-                data: base64Data
-              }
-            }
-          ]
-        }],
-        generationConfig: {
-          response_mime_type: "application/json",
-          temperature: 0.1
-        }
+        model: 'gpt-4o-mini',
+        messages,
+        response_format: { type: "json_object" },
+        temperature: 0.1
       }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Erro Gemini: ${errorText}`);
+      const errorDetail = await response.text();
+      throw new Error(`Erro na API OpenAI: ${errorDetail}`);
     }
 
-    const result = await response.json();
-    const rawContent = result.candidates[0].content.parts[0].text;
-    const extractedData = JSON.parse(rawContent);
+    const aiResult = await response.json();
+    const extractedData = JSON.parse(aiResult.choices[0].message.content);
 
-    // 4. Salva no banco (OCR_RAW)
-    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    // 4. PERSISTÊNCIA NO BANCO
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!, 
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
     await supabase.from('ocr_raw').insert({
       user_id: userId,
       uploaded_file_url: file.name,
@@ -92,8 +118,8 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
-  } catch (error: any) {
-    console.error("Erro na Function:", error.message);
+  } catch (error) {
+    console.error("Erro final:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

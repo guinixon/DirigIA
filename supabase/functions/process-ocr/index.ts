@@ -21,7 +21,7 @@ serve(async (req) => {
       throw new Error('No file provided');
     }
 
-    console.log('Processing file:', file.name, file.type, file.size);
+    console.log('Processing file (v2 - direct vision):', file.name, file.type, file.size);
 
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     if (!OPENAI_API_KEY) {

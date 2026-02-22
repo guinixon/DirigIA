@@ -64,35 +64,39 @@ serve(async (req) => {
     }
     const base64 = btoa(binary);
     const mediaType = file.type || 'image/jpeg';
+    const dataUrl = `data:${mediaType};base64,${base64}`;
 
-    // Both PDFs and images are sent as base64 to the vision model
-    const messages = [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: buildSystemPrompt() },
-          { type: 'text', text: 'Analise este documento. Primeiro verifique se é uma multa de trânsito. Se for, extraia os dados estruturados.' },
-          {
-            type: 'image_url',
-            image_url: { url: `data:${mediaType};base64,${base64}` }
-          }
-        ]
-      }
+    // Build content parts based on file type
+    const contentParts: unknown[] = [
+      { type: 'input_text', text: buildSystemPrompt() },
+      { type: 'input_text', text: 'Analise este documento. Primeiro verifique se é uma multa de trânsito. Se for, extraia os dados estruturados.' },
     ];
 
-    console.log('Calling OpenAI API for OCR extraction...');
+    if (isPdf) {
+      contentParts.push({
+        type: 'input_file',
+        file_data: dataUrl,
+      });
+    } else {
+      contentParts.push({
+        type: 'input_image',
+        image_url: dataUrl,
+      });
+    }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    console.log('Calling OpenAI Responses API for OCR extraction...');
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages,
+        model: 'gpt-4.1-mini',
+        input: [{ role: 'user', content: contentParts }],
         tools: [buildExtractionTool()],
-        tool_choice: { type: "function", function: { name: "extract_traffic_fine_data" } }
+        tool_choice: { type: "function", function: { name: "extract_traffic_fine_data" } },
       }),
     });
 
@@ -118,14 +122,15 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    console.log('AI response received');
+    console.log('AI response received:', JSON.stringify(data).substring(0, 500));
 
-    const toolCall = data.choices[0].message.tool_calls?.[0];
+    // Responses API returns output array with function_call items
+    const toolCall = data.output?.find((item: { type: string }) => item.type === 'function_call');
     if (!toolCall) {
       throw new Error('No tool call in response');
     }
 
-    const extractedData = JSON.parse(toolCall.function.arguments);
+    const extractedData = JSON.parse(toolCall.arguments);
     console.log('Extracted data:', extractedData);
 
     // Validate if it's a traffic fine

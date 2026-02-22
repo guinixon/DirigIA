@@ -64,26 +64,6 @@ serve(async (req) => {
     }
     const base64 = btoa(binary);
     const mediaType = file.type || 'image/jpeg';
-    const dataUrl = `data:${mediaType};base64,${base64}`;
-
-    // Build content parts based on file type
-    const contentParts: unknown[] = [
-      { type: 'input_text', text: buildSystemPrompt() },
-      { type: 'input_text', text: 'Analise este documento. Primeiro verifique se é uma multa de trânsito. Se for, extraia os dados estruturados.' },
-    ];
-
-    if (isPdf) {
-      contentParts.push({
-        type: 'input_file',
-        filename: file.name || 'document.pdf',
-        file_data: dataUrl,
-      });
-    } else {
-      contentParts.push({
-        type: 'input_image',
-        image_url: dataUrl,
-      });
-    }
 
     console.log('Calling OpenAI Responses API for OCR extraction...');
 
@@ -95,9 +75,18 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
-        input: [{ role: 'user', content: contentParts }],
-        tools: [buildExtractionTool()],
-        tool_choice: { type: "function", name: "extract_traffic_fine_data" },
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: buildSystemPrompt() + '\n\nAnalise este documento. Primeiro verifique se é uma multa de trânsito. Se for, extraia os dados estruturados. Responda APENAS com JSON válido no formato: {"isTrafficFine":true/false,"aitNumber":"...","dataInfracao":"...","local":"...","placa":"...","renavam":"...","artigo":"...","orgaoAutuador":"...","nomeCondutor":"...","cpfCondutor":"...","enderecoCondutor":"..."}. Use null para campos não encontrados.' },
+              {
+                type: 'input_image',
+                image_url: `data:${mediaType};base64,${base64}`,
+              },
+            ],
+          },
+        ],
       }),
     });
 
@@ -125,13 +114,18 @@ serve(async (req) => {
     const data = await response.json();
     console.log('AI response received:', JSON.stringify(data).substring(0, 500));
 
-    // Responses API returns output array with function_call items
-    const toolCall = data.output?.find((item: { type: string }) => item.type === 'function_call');
-    if (!toolCall) {
-      throw new Error('No tool call in response');
+    // Responses API returns output array with message items
+    const outputMessage = data.output?.find((item: { type: string }) => item.type === 'message');
+    const rawText = outputMessage?.content?.[0]?.text || '';
+    console.log('Raw AI text:', rawText.substring(0, 500));
+
+    // Extract JSON from the response text
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found in AI response');
     }
 
-    const extractedData = JSON.parse(toolCall.arguments);
+    const extractedData = JSON.parse(jsonMatch[0]);
     console.log('Extracted data:', extractedData);
 
     // Validate if it's a traffic fine
@@ -198,29 +192,3 @@ IMPORTANTE: Se você não conseguir identificar alguma informação com certeza,
 Seja preciso e extraia apenas informações que estão claramente visíveis no documento.`;
 }
 
-function buildExtractionTool() {
-  return {
-    type: "function",
-    name: "extract_traffic_fine_data",
-    description: "Extrai dados estruturados de notificações de multas de trânsito",
-    parameters: {
-      type: "object",
-      properties: {
-        isTrafficFine: { type: "boolean", description: "true se o documento é uma notificação de multa de trânsito, false caso contrário" },
-        aitNumber: { type: ["string", "null"], description: "Número do Auto de Infração" },
-        dataInfracao: { type: ["string", "null"], description: "Data da infração no formato DD/MM/YYYY" },
-        local: { type: ["string", "null"], description: "Local completo da infração" },
-        placa: { type: ["string", "null"], description: "Placa do veículo" },
-        renavam: { type: ["string", "null"], description: "Código RENAVAM do veículo" },
-        artigo: { type: ["string", "null"], description: "Artigo ou código da infração" },
-        orgaoAutuador: { type: ["string", "null"], description: "Nome do órgão autuador" },
-        nomeCondutor: { type: ["string", "null"], description: "Nome completo do condutor" },
-        cpfCondutor: { type: ["string", "null"], description: "CPF do condutor" },
-        enderecoCondutor: { type: ["string", "null"], description: "Endereço completo do condutor" },
-      },
-      required: ["isTrafficFine", "aitNumber", "dataInfracao", "local", "placa", "renavam", "artigo", "orgaoAutuador", "nomeCondutor", "cpfCondutor", "enderecoCondutor"],
-      additionalProperties: false
-    },
-    strict: true,
-  };
-}

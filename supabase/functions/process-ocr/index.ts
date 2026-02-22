@@ -75,6 +75,7 @@ serve(async (req) => {
     if (isPdf) {
       contentParts.push({
         type: 'input_file',
+        filename: file.name || 'document.pdf',
         file_data: dataUrl,
       });
     } else {
@@ -96,7 +97,7 @@ serve(async (req) => {
         model: 'gpt-4.1-mini',
         input: [{ role: 'user', content: contentParts }],
         tools: [buildExtractionTool()],
-        tool_choice: { type: "function", function: { name: "extract_traffic_fine_data" } },
+        tool_choice: { type: "function", name: "extract_traffic_fine_data" },
       }),
     });
 
@@ -200,27 +201,26 @@ Seja preciso e extraia apenas informações que estão claramente visíveis no d
 function buildExtractionTool() {
   return {
     type: "function",
-    function: {
-      name: "extract_traffic_fine_data",
-      description: "Extrai dados estruturados de notificações de multas de trânsito",
-      parameters: {
-        type: "object",
-        properties: {
-          isTrafficFine: { type: "boolean", description: "true se o documento é uma notificação de multa de trânsito, false caso contrário" },
-          aitNumber: { type: "string", description: "Número do Auto de Infração" },
-          dataInfracao: { type: "string", description: "Data da infração no formato DD/MM/YYYY" },
-          local: { type: "string", description: "Local completo da infração" },
-          placa: { type: "string", description: "Placa do veículo" },
-          renavam: { type: "string", description: "Código RENAVAM do veículo" },
-          artigo: { type: "string", description: "Artigo ou código da infração" },
-          orgaoAutuador: { type: "string", description: "Nome do órgão autuador" },
-          nomeCondutor: { type: "string", description: "Nome completo do condutor" },
-          cpfCondutor: { type: "string", description: "CPF do condutor" },
-          enderecoCondutor: { type: "string", description: "Endereço completo do condutor" },
-        },
-        required: ["isTrafficFine"],
-        additionalProperties: false
-      }
-    }
+    name: "extract_traffic_fine_data",
+    description: "Extrai dados estruturados de notificações de multas de trânsito",
+    parameters: {
+      type: "object",
+      properties: {
+        isTrafficFine: { type: "boolean", description: "true se o documento é uma notificação de multa de trânsito, false caso contrário" },
+        aitNumber: { type: "string", description: "Número do Auto de Infração" },
+        dataInfracao: { type: "string", description: "Data da infração no formato DD/MM/YYYY" },
+        local: { type: "string", description: "Local completo da infração" },
+        placa: { type: "string", description: "Placa do veículo" },
+        renavam: { type: "string", description: "Código RENAVAM do veículo" },
+        artigo: { type: "string", description: "Artigo ou código da infração" },
+        orgaoAutuador: { type: "string", description: "Nome do órgão autuador" },
+        nomeCondutor: { type: "string", description: "Nome completo do condutor" },
+        cpfCondutor: { type: "string", description: "CPF do condutor" },
+        enderecoCondutor: { type: "string", description: "Endereço completo do condutor" },
+      },
+      required: ["isTrafficFine"],
+      additionalProperties: false
+    },
+    strict: true,
   };
 }

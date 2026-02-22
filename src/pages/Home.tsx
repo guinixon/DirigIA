@@ -166,7 +166,7 @@ const Home = () => {
               <Button variant="ghost" size="icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title={theme === "dark" ? "Modo claro" : "Modo escuro"} className="hover:bg-muted/60 transition-colors">
                 {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => navigate("/export")} title="Exportar Dados" className="hover:bg-muted/60 transition-colors"><Download className="h-5 w-5" /></Button>
+              
               <Button variant="ghost" size="icon" onClick={() => navigate("/historic")} title="Histórico" className="hover:bg-muted/60 transition-colors"><History className="h-5 w-5" /></Button>
               <Button variant="ghost" size="icon" onClick={() => navigate("/profile")} title="Perfil" className="hover:bg-muted/60 transition-colors"><User className="h-5 w-5" /></Button>
               <Button variant="ghost" size="icon" onClick={handleLogout} title="Sair" className="hover:bg-destructive/10 hover:text-destructive transition-colors"><LogOut className="h-5 w-5" /></Button>

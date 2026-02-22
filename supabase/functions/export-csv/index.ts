@@ -92,7 +92,7 @@ serve(async (req) => {
     }
 
     const csvHeader = columns.join(",");
-    const csvRows = (rows as Record<string, unknown>[]).map((row) =>
+    const csvRows = (rows as unknown as Record<string, unknown>[]).map((row) =>
       columns
         .map((col) => {
           const val = row[col];

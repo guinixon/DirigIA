@@ -15,11 +15,9 @@ serve(async (req) => {
     const file = formData.get('file') as File;
     if (!file) throw new Error('Arquivo não enviado');
 
-    // Chave do Gemini configurada via 'supabase secrets set GEMINI_API_KEY=...'
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
-    if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY não configurada.');
-
-    // Autenticação do Usuário (JWT do Supabase Auth)
+    
+    // Auth do Supabase
     const authHeader = req.headers.get('authorization');
     const jwt = authHeader?.replace('Bearer ', '');
     const payload = JSON.parse(atob(jwt?.split('.')[1] || ""));
@@ -30,26 +28,25 @@ serve(async (req) => {
     const isPdf = file.type === 'application/pdf';
 
     let extractedText = "";
-    let base64Data = "";
-
-    // 1. TENTATIVA DE EXTRAÇÃO DE TEXTO (PDFs Digitais)
+    
+    // 1. Tenta extrair texto (Opcional, não trava mais se falhar)
     if (isPdf) {
       try {
         const pdfData = await pdfParse(Buffer.from(bytes));
         extractedText = pdfData.text?.trim() || "";
       } catch (e) {
-        console.log("PDF sem camada de texto técnica. Usaremos Visão.");
+        console.log("PDF escaneado detectado. Prosseguindo com análise visual...");
       }
     }
 
-    // 2. CONVERSÃO PARA BASE64 (Sempre preparamos para o Gemini ler visualmente)
+    // 2. Prepara o Base64 para o Gemini
     let binary = "";
     for (let i = 0; i < bytes.byteLength; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    base64Data = btoa(binary);
+    const base64Data = btoa(binary);
 
-    // 3. CHAMADA API DO GEMINI
+    // 3. Chamada Gemini 1.5 Flash (Suporta PDF nativamente)
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     const response = await fetch(url, {
@@ -58,12 +55,7 @@ serve(async (req) => {
       body: JSON.stringify({
         contents: [{
           parts: [
-            { text: `Você é um especialista em multas de trânsito brasileiras. Extraia os dados do documento abaixo (seja via texto ou imagem). 
-                     Responda estritamente em JSON com as chaves: isTrafficFine (boolean), aitNumber, dataInfracao, local, placa, renavam, artigo, orgaoAutuador. 
-                     Se não for multa, isTrafficFine: false.` },
-            // Se houver texto extraído do PDF, incluímos para ajudar a IA
-            ...(extractedText ? [{ text: `Texto extraído do PDF: ${extractedText}` }] : []),
-            // Enviamos o arquivo (Imagem ou PDF Escaneado) como dado inline
+            { text: "Você é um especialista em multas brasileiras. Extraia os dados e responda APENAS em JSON. Se não for multa, isTrafficFine deve ser false." },
             {
               inline_data: {
                 mime_type: isPdf ? "application/pdf" : file.type,
@@ -80,21 +72,16 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
-      const errorDetail = await response.text();
-      throw new Error(`Gemini API Error: ${errorDetail}`);
+      const errorText = await response.text();
+      throw new Error(`Erro Gemini: ${errorText}`);
     }
 
     const result = await response.json();
-    // O Gemini retorna o conteúdo em candidates[0].content.parts[0].text
     const rawContent = result.candidates[0].content.parts[0].text;
     const extractedData = JSON.parse(rawContent);
 
-    // 4. PERSISTÊNCIA NO BANCO
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!, 
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
-
+    // 4. Salva no banco (OCR_RAW)
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     await supabase.from('ocr_raw').insert({
       user_id: userId,
       uploaded_file_url: file.name,
@@ -106,7 +93,7 @@ serve(async (req) => {
     });
 
   } catch (error: any) {
-    console.error("Erro OCR:", error.message);
+    console.error("Erro na Function:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }

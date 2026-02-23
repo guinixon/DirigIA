@@ -112,11 +112,25 @@ serve(async (req) => {
         );
       }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', customerEmail)
-        .single();
+      console.log("Customer email from webhook:", customerEmail);
+
+const { data: profile, error: profileError } = await supabase
+  .from('profiles')
+  .select('id, email')
+  .ilike('email', customerEmail.trim())
+  .maybeSingle();
+
+console.log("Profile found:", profile);
+console.log("Profile error:", profileError);
+
+if (!profile) {
+  console.error("User not found for email:", customerEmail);
+
+  return new Response(
+    JSON.stringify({ success: true }),
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
 
       if (!profile) {
         return new Response(

@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Download, Home, CheckCircle2, Lock, Copy, Edit3, Save, X, FileText, ArrowRight, ClipboardCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import jsPDF from "jspdf";
 
 const CAKTO_CHECKOUT_URL = "https://pay.cakto.com.br/ctkescx_758613";
 
@@ -53,14 +54,31 @@ const AiResult = () => {
 
   const handleDownloadClick = () => {
     if (isPremium) {
-      const element = document.createElement("a");
-      const file = new Blob([isEditing ? editedText : generatedText], { type: "text/plain" });
-      element.href = URL.createObjectURL(file);
-      element.download = `recurso-multa-${Date.now()}.txt`;
-      document.body.appendChild(element);
-      element.click();
-      document.body.removeChild(element);
-      toast.success("Recurso baixado com sucesso!");
+      const text = isEditing ? editedText : generatedText;
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 20;
+      const maxWidth = pageWidth - margin * 2;
+      const lineHeight = 7;
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(12);
+      
+      const lines = doc.splitTextToSize(text, maxWidth);
+      let y = margin;
+      
+      for (const line of lines) {
+        if (y + lineHeight > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, margin, y);
+        y += lineHeight;
+      }
+      
+      doc.save(`recurso-multa-${Date.now()}.pdf`);
+      toast.success("Recurso baixado em PDF com sucesso!");
     } else {
       toast.info("Redirecionando para pagamento...");
       window.location.href = CAKTO_CHECKOUT_URL;

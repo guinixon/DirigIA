@@ -19,17 +19,11 @@ serve(async (req) => {
     const payload = await req.json();
     console.log('Cakto webhook received:', JSON.stringify(payload, null, 2));
 
-    // Cakto webhook payload structure
-    // event: purchase_approved, purchase_refused, refund, etc.
-    // customer: { email, name, document, phone }
-    // order: { id, status, product, offer, amount }
-    
     const event = payload.event || payload.custom_id;
     const customer = payload.customer || payload.data?.customer;
     const order = payload.order || payload.data?.order;
 
     if (!event) {
-      console.log('Invalid webhook payload - no event');
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid payload - missing event' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -38,21 +32,23 @@ serve(async (req) => {
 
     console.log(`Processing Cakto event: ${event}`);
 
-    // Handle purchase approved event
+    // ================================
+    // PURCHASE APPROVED
+    // ================================
     if (event === 'purchase_approved') {
+
       const customerEmail = customer?.email;
-      
+
       if (!customerEmail) {
-        console.log('No customer email in payload');
         return new Response(
           JSON.stringify({ success: false, error: 'Missing customer email' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log(`Processing purchase approval for email: ${customerEmail}`);
+      console.log(`Processing purchase approval for: ${customerEmail}`);
 
-      // Find user by email in profiles
+      // Buscar usuário pelo email
       const { data: profile, error: profileFetchError } = await supabase
         .from('profiles')
         .select('id, email, plan')
@@ -60,54 +56,67 @@ serve(async (req) => {
         .single();
 
       if (profileFetchError || !profile) {
-        console.error('User not found for email:', customerEmail, profileFetchError);
-        // Still return success to Cakto to acknowledge receipt
+        console.error('User not found:', profileFetchError);
         return new Response(
           JSON.stringify({ success: true, message: 'User not found but webhook received' }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log(`Found user: ${profile.id}, current plan: ${profile.plan}`);
-
-      // Update user plan to premium
+      // Atualizar plano para premium
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ 
+        .update({
           plan: 'premium',
           updated_at: new Date().toISOString()
         })
         .eq('id', profile.id);
 
       if (updateError) {
-        console.error('Error updating profile to premium:', updateError);
+        console.error('Error updating profile:', updateError);
         return new Response(
           JSON.stringify({ success: false, error: 'Failed to update profile' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      console.log(`User ${profile.id} (${customerEmail}) upgraded to premium successfully`);
-
-      // Optionally save payment record
+      // ================================
+      // PASSO 3 - EVITAR DUPLICIDADE
+      // ================================
       const orderId = order?.id || payload.id || `cakto-${Date.now()}`;
       const amount = order?.amount || order?.price || payload.amount || 0;
 
-      const { error: paymentError } = await supabase
+      // Verificar se já existe pagamento com esse billing_id
+      const { data: existingPayment } = await supabase
         .from('payments')
-        .insert({
-          user_id: profile.id,
-          billing_id: orderId.toString(),
-          plan: 'premium',
-          amount: typeof amount === 'number' ? amount : parseInt(amount) || 4990,
-          status: 'PAID',
-          payment_method: 'CAKTO',
-          paid_at: new Date().toISOString()
-        });
+        .select('id')
+        .eq('billing_id', orderId.toString())
+        .maybeSingle();
 
-      if (paymentError) {
-        console.error('Error saving payment record:', paymentError);
-        // Don't fail the webhook, payment record is secondary
+      if (existingPayment) {
+        console.log(`Payment ${orderId} already exists. Skipping insert.`);
+      } else {
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .insert({
+            user_id: profile.id,
+            billing_id: orderId.toString(),
+            plan: 'premium',
+            amount: typeof amount === 'number'
+              ? amount
+              : parseInt(amount) || 4990,
+            status: 'PAID',
+            payment_method: 'CAKTO',
+            paid_at: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (paymentError) {
+          console.error('Error saving payment record:', paymentError);
+        } else {
+          console.log(`Payment ${orderId} saved successfully.`);
+        }
       }
 
       return new Response(
@@ -116,14 +125,17 @@ serve(async (req) => {
       );
     }
 
-    // Handle refund event - downgrade to free
+    // ================================
+    // REFUND / CHARGEBACK
+    // ================================
     if (event === 'refund' || event === 'chargeback') {
+
       const customerEmail = customer?.email;
-      
+
       if (customerEmail) {
         const { error: updateError } = await supabase
           .from('profiles')
-          .update({ 
+          .update({
             plan: 'free',
             updated_at: new Date().toISOString()
           })
@@ -131,34 +143,33 @@ serve(async (req) => {
 
         if (updateError) {
           console.error('Error downgrading profile:', updateError);
-        } else {
-          console.log(`User ${customerEmail} downgraded to free due to ${event}`);
         }
       }
 
       return new Response(
-        JSON.stringify({ success: true, message: 'Refund/chargeback processed' }),
+        JSON.stringify({ success: true, message: 'Refund processed' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Handle subscription canceled
+    // ================================
+    // SUBSCRIPTION CANCELED
+    // ================================
     if (event === 'subscription_canceled') {
+
       const customerEmail = customer?.email;
-      
+
       if (customerEmail) {
         const { error: updateError } = await supabase
           .from('profiles')
-          .update({ 
+          .update({
             plan: 'free',
             updated_at: new Date().toISOString()
           })
           .eq('email', customerEmail);
 
         if (updateError) {
-          console.error('Error downgrading profile on subscription cancel:', updateError);
-        } else {
-          console.log(`User ${customerEmail} subscription canceled, downgraded to free`);
+          console.error('Error downgrading profile:', updateError);
         }
       }
 
@@ -168,8 +179,7 @@ serve(async (req) => {
       );
     }
 
-    // For other events, just acknowledge receipt
-    console.log(`Event ${event} acknowledged but no action taken`);
+    // Outros eventos
     return new Response(
       JSON.stringify({ success: true, message: `Event ${event} received` }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -178,6 +188,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Webhook error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
     return new Response(
       JSON.stringify({ success: false, error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

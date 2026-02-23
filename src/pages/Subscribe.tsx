@@ -98,7 +98,7 @@ const Subscribe = () => {
                 Para uso profissional ilimitado
               </CardDescription>
               <div className="mt-4">
-                <span className="text-4xl font-bold">R$ 49,90</span>
+                <span className="text-4xl font-bold">R$ 19,90</span>
                 <span className="text-muted-foreground">/mês</span>
               </div>
             </CardHeader>

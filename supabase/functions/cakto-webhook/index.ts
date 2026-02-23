@@ -30,73 +30,49 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Processing Cakto event: ${event}`);
+    console.log(`Processing event: ${event}`);
 
-    // ================================
-    // PURCHASE APPROVED
-    // ================================
-    if (event === 'purchase_approved') {
-
+    // =====================================================
+    // PIX GERADO → Criar pagamento como PENDING
+    // =====================================================
+    if (
+      event === 'pix_gerado' ||
+      event === 'purchase_created' ||
+      event === 'waiting_payment' ||
+      event === 'pix_generated'
+    ) {
       const customerEmail = customer?.email;
+      const orderId = order?.id || payload.id;
+      const amount = order?.amount || order?.price || payload.amount || 0;
 
-      if (!customerEmail) {
+      if (!customerEmail || !orderId) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Missing customer email' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      console.log(`Processing purchase approval for: ${customerEmail}`);
-
-      // Buscar usuário pelo email
-      const { data: profile, error: profileFetchError } = await supabase
-        .from('profiles')
-        .select('id, email, plan')
-        .eq('email', customerEmail)
-        .single();
-
-      if (profileFetchError || !profile) {
-        console.error('User not found:', profileFetchError);
-        return new Response(
-          JSON.stringify({ success: true, message: 'User not found but webhook received' }),
+          JSON.stringify({ success: false }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // Atualizar plano para premium
-      const { error: updateError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
-        .update({
-          plan: 'premium',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', profile.id);
+        .select('id')
+        .eq('email', customerEmail)
+        .single();
 
-      if (updateError) {
-        console.error('Error updating profile:', updateError);
+      if (!profile) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Failed to update profile' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // ================================
-      // PASSO 3 - EVITAR DUPLICIDADE
-      // ================================
-      const orderId = order?.id || payload.id || `cakto-${Date.now()}`;
-      const amount = order?.amount || order?.price || payload.amount || 0;
-
-      // Verificar se já existe pagamento com esse billing_id
       const { data: existingPayment } = await supabase
         .from('payments')
         .select('id')
         .eq('billing_id', orderId.toString())
         .maybeSingle();
 
-      if (existingPayment) {
-        console.log(`Payment ${orderId} already exists. Skipping insert.`);
-      } else {
-        const { error: paymentError } = await supabase
+      if (!existingPayment) {
+        await supabase
           .from('payments')
           .insert({
             user_id: profile.id,
@@ -104,82 +80,132 @@ serve(async (req) => {
             plan: 'premium',
             amount: typeof amount === 'number'
               ? amount
-              : parseInt(amount) || 4990,
+              : parseInt(amount) || 0,
+            status: 'PENDING',
+            payment_method: 'PIX',
+            paid_at: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        console.log(`Payment ${orderId} created as PENDING`);
+      }
+
+      return new Response(
+        JSON.stringify({ success: true }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // =====================================================
+    // PAGAMENTO APROVADO → Atualizar para PAID + Premium
+    // =====================================================
+    if (event === 'purchase_approved') {
+      const customerEmail = customer?.email;
+      const orderId = order?.id || payload.id;
+      const amount = order?.amount || order?.price || payload.amount || 0;
+
+      if (!customerEmail || !orderId) {
+        return new Response(
+          JSON.stringify({ success: false }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', customerEmail)
+        .single();
+
+      if (!profile) {
+        return new Response(
+          JSON.stringify({ success: true }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Atualizar plano para premium
+      await supabase
+        .from('profiles')
+        .update({
+          plan: 'premium',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', profile.id);
+
+      // Atualizar pagamento para PAID
+      const { data: existingPayment } = await supabase
+        .from('payments')
+        .select('id')
+        .eq('billing_id', orderId.toString())
+        .maybeSingle();
+
+      if (existingPayment) {
+        await supabase
+          .from('payments')
+          .update({
             status: 'PAID',
-            payment_method: 'CAKTO',
+            amount: typeof amount === 'number'
+              ? amount
+              : parseInt(amount) || 0,
+            paid_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('billing_id', orderId.toString());
+
+        console.log(`Payment ${orderId} updated to PAID`);
+      } else {
+        await supabase
+          .from('payments')
+          .insert({
+            user_id: profile.id,
+            billing_id: orderId.toString(),
+            plan: 'premium',
+            amount: typeof amount === 'number'
+              ? amount
+              : parseInt(amount) || 0,
+            status: 'PAID',
+            payment_method: 'PIX',
             paid_at: new Date().toISOString(),
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           });
 
-        if (paymentError) {
-          console.error('Error saving payment record:', paymentError);
-        } else {
-          console.log(`Payment ${orderId} saved successfully.`);
-        }
+        console.log(`Payment ${orderId} inserted as PAID`);
       }
 
       return new Response(
-        JSON.stringify({ success: true, message: 'User upgraded to premium' }),
+        JSON.stringify({ success: true }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // ================================
+    // =====================================================
     // REFUND / CHARGEBACK
-    // ================================
+    // =====================================================
     if (event === 'refund' || event === 'chargeback') {
-
       const customerEmail = customer?.email;
 
       if (customerEmail) {
-        const { error: updateError } = await supabase
+        await supabase
           .from('profiles')
           .update({
             plan: 'free',
             updated_at: new Date().toISOString()
           })
           .eq('email', customerEmail);
-
-        if (updateError) {
-          console.error('Error downgrading profile:', updateError);
-        }
       }
 
       return new Response(
-        JSON.stringify({ success: true, message: 'Refund processed' }),
+        JSON.stringify({ success: true }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // ================================
-    // SUBSCRIPTION CANCELED
-    // ================================
-    if (event === 'subscription_canceled') {
-
-      const customerEmail = customer?.email;
-
-      if (customerEmail) {
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({
-            plan: 'free',
-            updated_at: new Date().toISOString()
-          })
-          .eq('email', customerEmail);
-
-        if (updateError) {
-          console.error('Error downgrading profile:', updateError);
-        }
-      }
-
-      return new Response(
-        JSON.stringify({ success: true, message: 'Subscription canceled processed' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Outros eventos
+    // =====================================================
+    // OUTROS EVENTOS
+    // =====================================================
     return new Response(
       JSON.stringify({ success: true, message: `Event ${event} received` }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -187,10 +213,9 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Webhook error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
     return new Response(
-      JSON.stringify({ success: false, error: errorMessage }),
+      JSON.stringify({ success: false, error: 'Internal error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

@@ -1,7 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { Buffer } from "node:buffer";
-import pdfParse from "https://esm.sh/pdf-parse@1.1.1/lib/pdf-parse.js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,58 +55,29 @@ serve(async (req) => {
     const arrayBuffer = await file.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
-    // Build the messages for OpenAI based on file type
-    let messages;
-
-    if (isPdf) {
-      // Extract text from PDF using pdf-parse
-      console.log('Extracting text from PDF...');
-      const pdfData = await pdfParse(Buffer.from(bytes));
-      const extractedText = pdfData.text;
-
-      console.log('PDF text length:', extractedText?.length || 0);
-
-      if (!extractedText || extractedText.length < 50) {
-        return new Response(
-          JSON.stringify({ error: 'Falha na extração do PDF. O documento pode ser uma imagem escaneada. Tente enviar uma foto em vez de PDF.' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      messages = [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: buildSystemPrompt() },
-            { type: 'text', text: `Analise o texto extraído deste documento. Primeiro verifique se é uma multa de trânsito. Se for, extraia os dados estruturados.\n\nTexto extraído do PDF:\n${extractedText}` },
-          ]
-        }
-      ];
-    } else {
-      // Image flow: send as base64 image_url
-      const chunkSize = 8192;
-      let binary = '';
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-        binary += String.fromCharCode(...chunk);
-      }
-      const base64 = btoa(binary);
-      const mediaType = file.type || 'image/jpeg';
-
-      messages = [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: buildSystemPrompt() },
-            { type: 'text', text: 'Analise este documento. Primeiro verifique se é uma multa de trânsito. Se for, extraia os dados estruturados.' },
-            {
-              type: 'image_url',
-              image_url: { url: `data:${mediaType};base64,${base64}` }
-            }
-          ]
-        }
-      ];
+    // Build base64 for both PDF and image — OpenAI vision handles both
+    const chunkSize = 8192;
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+      binary += String.fromCharCode(...chunk);
     }
+    const base64 = btoa(binary);
+    const mediaType = isPdf ? 'application/pdf' : (file.type || 'image/jpeg');
+
+    const messages = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: buildSystemPrompt() },
+          { type: 'text', text: 'Analise este documento. Primeiro verifique se é uma multa de trânsito. Se for, extraia os dados estruturados.' },
+          {
+            type: 'image_url',
+            image_url: { url: `data:${mediaType};base64,${base64}` }
+          }
+        ]
+      }
+    ];
 
     console.log('Calling OpenAI API for OCR extraction...');
 

@@ -47,7 +47,15 @@ serve(async (req) => {
 
     if (!isPdf && !isImage) {
       return new Response(
-        JSON.stringify({ error: 'Formato não suportado. Envie uma foto (JPEG, PNG, WebP) ou PDF da notificação de multa.' }),
+        JSON.stringify({ error: 'Formato não suportado. Envie uma foto (JPEG, PNG, WebP) da notificação de multa.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // OpenAI vision API does NOT support PDF MIME type — only images
+    if (isPdf) {
+      return new Response(
+        JSON.stringify({ error: 'PDFs não são suportados diretamente. Por favor, tire uma foto ou faça uma captura de tela da notificação de multa e envie como imagem (JPEG, PNG ou WebP).' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -55,7 +63,6 @@ serve(async (req) => {
     const arrayBuffer = await file.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
-    // Build base64 for both PDF and image — OpenAI vision handles both
     const chunkSize = 8192;
     let binary = '';
     for (let i = 0; i < bytes.length; i += chunkSize) {
@@ -63,7 +70,7 @@ serve(async (req) => {
       binary += String.fromCharCode(...chunk);
     }
     const base64 = btoa(binary);
-    const mediaType = isPdf ? 'application/pdf' : (file.type || 'image/jpeg');
+    const mediaType = file.type || 'image/jpeg';
 
     const messages = [
       {

@@ -15,6 +15,7 @@ import PermissionDeniedDialog from "@/components/upload/PermissionDeniedDialog";
 import CameraCapture from "@/components/upload/CameraCapture";
 import FilePermissionDialog from "@/components/upload/FilePermissionDialog";
 import FileUploadPreview, { validateFile } from "@/components/upload/FileUploadPreview";
+import { pdfToImage } from "@/lib/pdfToImage";
 
 const CAMERA_PERMISSION_KEY = "dirigia_camera_granted";
 const FILE_PERMISSION_KEY = "dirigia_file_granted";
@@ -58,8 +59,19 @@ const Home = () => {
   const processFile = async (file: File) => {
     setUploading(true);
     try {
+      // Convert PDF to image on client side before sending
+      let fileToSend = file;
+      if (file.type === 'application/pdf') {
+        try {
+          fileToSend = await pdfToImage(file);
+        } catch (e) {
+          console.error('PDF conversion error:', e);
+          toast.error('Erro ao converter PDF. Tente enviar uma foto da multa.');
+          return;
+        }
+      }
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', fileToSend);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Sessão expirada. Faça login novamente."); navigate("/login"); return; }
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/process-ocr`, {

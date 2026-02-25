@@ -52,10 +52,11 @@ serve(async (req) => {
       );
     }
 
-    // OpenAI vision API does NOT support PDF MIME type — only images
+    // PDFs should be converted to images on the client side before reaching here
+    // If a PDF still arrives, reject it gracefully
     if (isPdf) {
       return new Response(
-        JSON.stringify({ error: 'PDFs não são suportados diretamente. Por favor, tire uma foto ou faça uma captura de tela da notificação de multa e envie como imagem (JPEG, PNG ou WebP).' }),
+        JSON.stringify({ error: 'PDFs devem ser convertidos para imagem antes do envio. Tente novamente.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

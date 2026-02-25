@@ -19,9 +19,15 @@ serve(async (req) => {
     const payload = await req.json();
     console.log('Cakto webhook received:', JSON.stringify(payload, null, 2));
 
+    const data = payload.data ?? {};
     const event = payload.event || payload.custom_id;
-    const customer = payload.customer || payload.data?.customer;
-    const order = payload.order || payload.data?.order;
+    const customer = payload.customer || data.customer;
+    const order = payload.order || data.order || data;
+    const customerEmail = typeof customer?.email === 'string' ? customer.email.trim() : null;
+    const orderId = order?.id || payload.id || data.id;
+    const rawAmount = order?.amount ?? order?.price ?? payload.amount ?? data.amount ?? 0;
+    const amount = Number(rawAmount);
+    const normalizedAmount = Number.isFinite(amount) ? Math.round(amount) : 0;
 
     if (!event) {
       return new Response(
@@ -41,9 +47,6 @@ serve(async (req) => {
       event === 'waiting_payment' ||
       event === 'pix_generated'
     ) {
-      const customerEmail = customer?.email;
-      const orderId = order?.id || payload.id;
-      const amount = order?.amount || order?.price || payload.amount || 0;
 
       if (!customerEmail || !orderId) {
         return new Response(
@@ -55,8 +58,8 @@ serve(async (req) => {
       const { data: profile } = await supabase
         .from('profiles')
         .select('id')
-        .eq('email', customerEmail)
-        .single();
+        .ilike('email', customerEmail)
+        .maybeSingle();
 
       if (!profile) {
         return new Response(
@@ -78,9 +81,7 @@ serve(async (req) => {
             user_id: profile.id,
             billing_id: orderId.toString(),
             plan: 'premium',
-            amount: typeof amount === 'number'
-              ? amount
-              : parseInt(amount) || 0,
+            amount: normalizedAmount,
             status: 'PENDING',
             payment_method: 'PIX',
             paid_at: null,
@@ -101,9 +102,6 @@ serve(async (req) => {
     // PAGAMENTO APROVADO → Atualizar para PAID + Premium
     // =====================================================
     if (event === 'purchase_approved') {
-      const customerEmail = customer?.email;
-      const orderId = order?.id || payload.id;
-      const amount = order?.amount || order?.price || payload.amount || 0;
 
       if (!customerEmail || !orderId) {
         return new Response(
@@ -117,7 +115,7 @@ serve(async (req) => {
 const { data: profile, error: profileError } = await supabase
   .from('profiles')
   .select('id, email')
-  .ilike('email', customerEmail.trim())
+  .ilike('email', customerEmail)
   .maybeSingle();
 
 console.log("Profile found:", profile);
@@ -132,12 +130,6 @@ if (!profile) {
   );
 }
 
-      if (!profile) {
-        return new Response(
-          JSON.stringify({ success: true }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
 
       // Atualizar plano para premium
       await supabase
@@ -160,9 +152,7 @@ if (!profile) {
           .from('payments')
           .update({
             status: 'PAID',
-            amount: typeof amount === 'number'
-              ? amount
-              : parseInt(amount) || 0,
+            amount: normalizedAmount,
             paid_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           })
@@ -176,9 +166,7 @@ if (!profile) {
             user_id: profile.id,
             billing_id: orderId.toString(),
             plan: 'premium',
-            amount: typeof amount === 'number'
-              ? amount
-              : parseInt(amount) || 0,
+            amount: normalizedAmount,
             status: 'PAID',
             payment_method: 'PIX',
             paid_at: new Date().toISOString(),
@@ -199,7 +187,7 @@ if (!profile) {
     // REFUND / CHARGEBACK
     // =====================================================
     if (event === 'refund' || event === 'chargeback') {
-      const customerEmail = customer?.email;
+      const customerEmail = typeof customer?.email === 'string' ? customer.email.trim() : null;
 
       if (customerEmail) {
         await supabase
@@ -208,7 +196,7 @@ if (!profile) {
             plan: 'free',
             updated_at: new Date().toISOString()
           })
-          .eq('email', customerEmail);
+          .ilike('email', customerEmail);
       }
 
       return new Response(

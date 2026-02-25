@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { Buffer } from "node:buffer";
-import pdfParse from "npm:pdf-parse@1.1.1/lib/pdf-parse.js";
+import pdfParse from "https://esm.sh/pdf-parse@1.1.1/lib/pdf-parse.js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

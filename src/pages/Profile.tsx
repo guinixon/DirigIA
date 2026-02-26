@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, User, Mail, Crown, FileText, Loader2 } from "lucide-react";
+import { ArrowLeft, User, Mail, Crown, FileText, Loader2, Pencil, Check, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface Profile {
@@ -17,6 +18,9 @@ const Profile = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [savingName, setSavingName] = useState(false);
 
   useEffect(() => {
     fetchProfile();
@@ -43,6 +47,30 @@ const Profile = () => {
       toast.error("Erro ao carregar perfil");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveName = async () => {
+    if (!newName.trim()) return;
+    setSavingName(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ name: newName.trim() })
+        .eq("id", session.user.id);
+
+      if (error) throw error;
+      setProfile((prev) => prev ? { ...prev, name: newName.trim() } : prev);
+      setEditingName(false);
+      toast.success("Nome atualizado com sucesso");
+    } catch (error) {
+      console.error("Error updating name:", error);
+      toast.error("Erro ao atualizar nome");
+    } finally {
+      setSavingName(false);
     }
   };
 
@@ -79,9 +107,31 @@ const Profile = () => {
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
                   <User className="h-5 w-5 text-primary" />
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm text-muted-foreground">Nome</p>
-                    <p className="font-medium">{profile?.name}</p>
+                    {editingName ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <Input
+                          value={newName}
+                          onChange={(e) => setNewName(e.target.value)}
+                          className="h-8"
+                          autoFocus
+                        />
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={handleSaveName} disabled={savingName}>
+                          {savingName ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingName(false)}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{profile?.name}</p>
+                        <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setNewName(profile?.name || ""); setEditingName(true); }}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </div>
 

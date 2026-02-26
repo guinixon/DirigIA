@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,8 +10,10 @@ import { Scale, Loader2, ArrowRight, UserPlus } from "lucide-react";
 
 const Register = () => {
   const navigate = useNavigate();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [searchParams] = useSearchParams();
+  const isGoogleFlow = searchParams.get("google") === "true";
+  const [name, setName] = useState(searchParams.get("name") || "");
+  const [email, setEmail] = useState(searchParams.get("email") || "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,12 +21,12 @@ const Register = () => {
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
+      if (session && !isGoogleFlow) {
         navigate("/home");
       }
     };
     checkUser();
-  }, [navigate]);
+  }, [navigate, isGoogleFlow]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,33 +49,44 @@ const Register = () => {
     setLoading(true);
 
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name: name,
-          },
-          emailRedirectTo: `${window.location.origin}/home`,
-        },
-      });
+      if (isGoogleFlow) {
+        // User already authenticated via Google — set password and update profile name
+        const { error: pwError } = await supabase.auth.updateUser({ password });
+        if (pwError) throw pwError;
 
-      if (error) {
-        if (error.message.includes("already registered")) {
-          toast.error("Este email já está cadastrado");
-        } else {
-          toast.error(error.message);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          await supabase
+            .from("profiles")
+            .update({ name: name.trim() })
+            .eq("id", session.user.id);
         }
+
+        toast.success("Conta configurada com sucesso!");
+        navigate("/home");
       } else {
-        toast.success("Cadastro realizado! Verifique seu email para confirmar sua conta.", {
-          duration: 6000,
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name },
+            emailRedirectTo: `${window.location.origin}/home`,
+          },
         });
-        setTimeout(() => {
-          navigate("/login");
-        }, 3000);
+
+        if (error) {
+          if (error.message.includes("already registered")) {
+            toast.error("Este email já está cadastrado");
+          } else {
+            toast.error(error.message);
+          }
+        } else {
+          toast.success("Cadastro realizado! Verifique seu email para confirmar sua conta.", { duration: 6000 });
+          setTimeout(() => navigate("/login"), 3000);
+        }
       }
-    } catch (error) {
-      toast.error("Erro ao criar conta. Tente novamente.");
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao criar conta. Tente novamente.");
     } finally {
       setLoading(false);
     }
@@ -137,7 +150,7 @@ const Register = () => {
                   placeholder="seu@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || isGoogleFlow}
                   required
                   className="h-12 px-4 input-premium"
                 />

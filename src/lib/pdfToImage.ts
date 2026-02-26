@@ -1,10 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import { version } from 'pdfjs-dist';
 
-// Use the bundled worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url,
-).toString();
+// Load worker from CDN to avoid issues with custom domain asset resolution
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${version}/pdf.worker.min.mjs`;
 
 /**
  * Converts the first page of a PDF file to a PNG image File.

@@ -24,9 +24,21 @@ const Login = () => {
     };
     checkUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && session) {
-        navigate("/home");
+        const user = session.user;
+        const isGoogleUser = user.app_metadata?.provider === "google";
+        const createdAt = new Date(user.created_at);
+        const now = new Date();
+        const isNewUser = (now.getTime() - createdAt.getTime()) < 60000; // created less than 1 min ago
+
+        if (isGoogleUser && isNewUser) {
+          const fullName = user.user_metadata?.full_name || "";
+          const userEmail = user.email || "";
+          navigate(`/register?name=${encodeURIComponent(fullName)}&email=${encodeURIComponent(userEmail)}&google=true`);
+        } else {
+          navigate("/home");
+        }
       }
     });
 

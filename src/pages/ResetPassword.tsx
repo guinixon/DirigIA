@@ -14,21 +14,53 @@ const ResetPassword = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [isRecovery, setIsRecovery] = useState(false);
+  const [checkingToken, setCheckingToken] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setIsRecovery(true);
+    const handleRecovery = async () => {
+      try {
+        // Listen for PASSWORD_RECOVERY event
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+          if (event === "PASSWORD_RECOVERY") {
+            setIsRecovery(true);
+            setCheckingToken(false);
+          }
+        });
+
+        // Check URL hash for recovery tokens (Supabase redirects with hash fragments)
+        const hash = window.location.hash;
+        if (hash && hash.includes("type=recovery")) {
+          // Supabase client auto-processes the hash and establishes a session
+          // Wait briefly for the client to process the token
+          const { data: { session }, error } = await supabase.auth.getSession();
+          if (session && !error) {
+            setIsRecovery(true);
+          }
+        }
+
+        // Also check URL search params (PKCE flow uses query params with code)
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code");
+        const type = params.get("type");
+
+        if (code && type === "recovery") {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (!error) {
+            setIsRecovery(true);
+          } else {
+            console.error("Error exchanging code:", error.message);
+          }
+        }
+
+        setCheckingToken(false);
+        return () => subscription.unsubscribe();
+      } catch (err) {
+        console.error("Recovery error:", err);
+        setCheckingToken(false);
       }
-    });
+    };
 
-    // Check hash for recovery token
-    const hash = window.location.hash;
-    if (hash.includes("type=recovery")) {
-      setIsRecovery(true);
-    }
-
-    return () => subscription.unsubscribe();
+    handleRecovery();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -65,6 +97,18 @@ const ResetPassword = () => {
       setLoading(false);
     }
   };
+
+  if (checkingToken) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-background bg-mesh">
+        <div className="fixed inset-0 bg-pattern opacity-50 pointer-events-none" />
+        <div className="relative w-full max-w-md animate-fade-in text-center">
+          <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Verificando token de recuperação...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isRecovery) {
     return (

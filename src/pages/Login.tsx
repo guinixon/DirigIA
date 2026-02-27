@@ -129,6 +129,12 @@ const Login = () => {
                   <Label htmlFor="password" className="text-sm font-medium">
                     Senha
                   </Label>
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-muted-foreground hover:text-primary transition-colors duration-200"
+                  >
+                    Esqueci minha senha
+                  </Link>
                 </div>
                 <Input
                   id="password"

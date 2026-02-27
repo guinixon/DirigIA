@@ -3,9 +3,19 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, User, Mail, Crown, FileText, Loader2, Pencil, Check, X } from "lucide-react";
+import { ArrowLeft, User, Mail, Crown, FileText, Loader2, Pencil, Check, X, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 interface Profile {
   name: string;
@@ -21,6 +31,9 @@ const Profile = () => {
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState("");
   const [savingName, setSavingName] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchProfile();
@@ -71,6 +84,27 @@ const Profile = () => {
       toast.error("Erro ao atualizar nome");
     } finally {
       setSavingName(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!deleteConfirmed) return;
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { error } = await supabase.functions.invoke("delete-account");
+      if (error) throw error;
+
+      await supabase.auth.signOut();
+      toast.success("Conta excluída com sucesso");
+      navigate("/login");
+    } catch (error) {
+      console.error("Error deleting account:", error);
+      toast.error("Erro ao excluir conta");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -189,6 +223,16 @@ const Profile = () => {
             </Card>
 
             <Button
+              onClick={() => { setShowDeleteDialog(true); setDeleteConfirmed(false); }}
+              variant="destructive"
+              className="w-full"
+              size="lg"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Excluir Conta
+            </Button>
+
+            <Button
               onClick={handleLogout}
               variant="outline"
               className="w-full"
@@ -196,6 +240,49 @@ const Profile = () => {
             >
               Sair da Conta
             </Button>
+
+            <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                    <AlertTriangle className="h-5 w-5" />
+                    Excluir Conta
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-left space-y-3">
+                    <p>
+                      Tem certeza que deseja excluir sua conta? <strong>Todos os seus dados serão permanentemente apagados</strong>, incluindo:
+                    </p>
+                    <ul className="list-disc pl-5 space-y-1">
+                      <li>Seus recursos gerados</li>
+                      <li>Histórico de pagamentos</li>
+                      <li>Dados do perfil</li>
+                    </ul>
+                    <p className="font-semibold">Esta ação não pode ser desfeita.</p>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-lg border border-destructive/20">
+                  <Checkbox
+                    id="confirm-delete"
+                    checked={deleteConfirmed}
+                    onCheckedChange={(checked) => setDeleteConfirmed(checked === true)}
+                  />
+                  <label htmlFor="confirm-delete" className="text-sm leading-tight cursor-pointer">
+                    Estou ciente de que todos os meus dados serão apagados permanentemente e desejo prosseguir com a exclusão da conta.
+                  </label>
+                </div>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <Button
+                    variant="destructive"
+                    disabled={!deleteConfirmed || deleting}
+                    onClick={handleDeleteAccount}
+                  >
+                    {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                    Excluir Conta
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         )}
       </div>

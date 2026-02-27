@@ -14,6 +14,8 @@ import AiResult from "./pages/AiResult";
 import Historic from "./pages/Historic";
 import Profile from "./pages/Profile";
 import Subscribe from "./pages/Subscribe";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +38,8 @@ const App = () => (
             <Route path="/historic" element={<Historic />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/subscribe" element={<Subscribe />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

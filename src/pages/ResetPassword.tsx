@@ -17,59 +17,41 @@ const ResetPassword = () => {
   const [checkingToken, setCheckingToken] = useState(true);
 
   useEffect(() => {
-    const hash = window.location.hash;
-    const isHashRecovery = hash && hash.includes("type=recovery");
+    const processHash = async () => {
+      const hash = window.location.hash;
 
-    // Also check query params (PKCE flow)
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    const isCodeRecovery = code && params.get("type") === "recovery";
+      if (hash) {
+        const params = new URLSearchParams(hash.replace("#", ""));
+        const access_token = params.get("access_token");
+        const refresh_token = params.get("refresh_token");
+        const type = params.get("type");
 
-    if (!isHashRecovery && !isCodeRecovery) {
-      setCheckingToken(false);
-      return;
-    }
+        if (access_token && refresh_token && type === "recovery") {
+          const { error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
 
-    // Listen for auth state changes — Supabase auto-processes the hash
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && session)) {
-        setIsRecovery(true);
-        setCheckingToken(false);
+          if (!error) {
+            setIsRecovery(true);
+          }
+        }
       }
-    });
 
-    // Handle PKCE code exchange
-    if (isCodeRecovery) {
-      supabase.auth.exchangeCodeForSession(code!).then(({ error }) => {
+      // Also handle PKCE flow (query params with code)
+      const searchParams = new URLSearchParams(window.location.search);
+      const code = searchParams.get("code");
+      if (code && searchParams.get("type") === "recovery") {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error) {
           setIsRecovery(true);
-        } else {
-          console.error("Error exchanging code:", error.message);
         }
-        setCheckingToken(false);
-      });
-    }
+      }
 
-    // Fallback: if the client already processed the hash before our listener,
-    // check for an existing session after a short delay
-    if (isHashRecovery) {
-      const fallbackTimeout = setTimeout(async () => {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          setIsRecovery(true);
-        }
-        setCheckingToken(false);
-      }, 2000);
-
-      return () => {
-        clearTimeout(fallbackTimeout);
-        subscription.unsubscribe();
-      };
-    }
-
-    return () => {
-      subscription.unsubscribe();
+      setCheckingToken(false);
     };
+
+    processHash();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

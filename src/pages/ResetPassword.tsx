@@ -17,6 +17,8 @@ const ResetPassword = () => {
   const [checkingToken, setCheckingToken] = useState(true);
 
   useEffect(() => {
+    let subscriptionRef: { unsubscribe: () => void } | null = null;
+
     const handleRecovery = async () => {
       try {
         // Listen for PASSWORD_RECOVERY event
@@ -26,15 +28,19 @@ const ResetPassword = () => {
             setCheckingToken(false);
           }
         });
+        subscriptionRef = subscription;
 
         // Check URL hash for recovery tokens (Supabase redirects with hash fragments)
         const hash = window.location.hash;
         if (hash && hash.includes("type=recovery")) {
-          // Supabase client auto-processes the hash and establishes a session
-          // Wait briefly for the client to process the token
+          // The Supabase client may have already processed the hash on init.
+          // Wait briefly then check for an active session.
+          await new Promise((resolve) => setTimeout(resolve, 1000));
           const { data: { session }, error } = await supabase.auth.getSession();
           if (session && !error) {
             setIsRecovery(true);
+            setCheckingToken(false);
+            return;
           }
         }
 
@@ -53,7 +59,6 @@ const ResetPassword = () => {
         }
 
         setCheckingToken(false);
-        return () => subscription.unsubscribe();
       } catch (err) {
         console.error("Recovery error:", err);
         setCheckingToken(false);
@@ -61,6 +66,10 @@ const ResetPassword = () => {
     };
 
     handleRecovery();
+
+    return () => {
+      subscriptionRef?.unsubscribe();
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

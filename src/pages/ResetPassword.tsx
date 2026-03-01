@@ -17,22 +17,19 @@ const ResetPassword = () => {
   const [checkingToken, setCheckingToken] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
+    const handleRecovery = async () => {
+      const { data } = await supabase.auth.getSession();
+
+      if (data.session) {
+        // Limpa o hash da URL depois que o Supabase processar
+        window.history.replaceState({}, document.title, "/reset-password");
         setIsRecovery(true);
-        setCheckingToken(false);
       }
-    });
 
-    // Timeout fallback caso o evento já tenha sido disparado antes do listener
-    const timeout = setTimeout(() => {
       setCheckingToken(false);
-    }, 3000);
-
-    return () => {
-      subscription.unsubscribe();
-      clearTimeout(timeout);
     };
+
+    handleRecovery();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

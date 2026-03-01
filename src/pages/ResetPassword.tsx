@@ -17,41 +17,22 @@ const ResetPassword = () => {
   const [checkingToken, setCheckingToken] = useState(true);
 
   useEffect(() => {
-    const processHash = async () => {
-      const hash = window.location.hash;
-
-      if (hash) {
-        const params = new URLSearchParams(hash.replace("#", ""));
-        const access_token = params.get("access_token");
-        const refresh_token = params.get("refresh_token");
-        const type = params.get("type");
-
-        if (access_token && refresh_token && type === "recovery") {
-          const { error } = await supabase.auth.setSession({
-            access_token,
-            refresh_token,
-          });
-
-          if (!error) {
-            setIsRecovery(true);
-          }
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setIsRecovery(true);
+        setCheckingToken(false);
       }
+    });
 
-      // Also handle PKCE flow (query params with code)
-      const searchParams = new URLSearchParams(window.location.search);
-      const code = searchParams.get("code");
-      if (code && searchParams.get("type") === "recovery") {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (!error) {
-          setIsRecovery(true);
-        }
-      }
-
+    // Timeout fallback caso o evento já tenha sido disparado antes do listener
+    const timeout = setTimeout(() => {
       setCheckingToken(false);
-    };
+    }, 3000);
 
-    processHash();
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

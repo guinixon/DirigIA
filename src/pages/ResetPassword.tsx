@@ -17,58 +17,58 @@ const ResetPassword = () => {
   const [checkingToken, setCheckingToken] = useState(true);
 
   useEffect(() => {
-    let subscriptionRef: { unsubscribe: () => void } | null = null;
+    const hash = window.location.hash;
+    const isHashRecovery = hash && hash.includes("type=recovery");
 
-    const handleRecovery = async () => {
-      try {
-        // Listen for PASSWORD_RECOVERY event
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-          if (event === "PASSWORD_RECOVERY") {
-            setIsRecovery(true);
-            setCheckingToken(false);
-          }
-        });
-        subscriptionRef = subscription;
+    // Also check query params (PKCE flow)
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const isCodeRecovery = code && params.get("type") === "recovery";
 
-        // Check URL hash for recovery tokens (Supabase redirects with hash fragments)
-        const hash = window.location.hash;
-        if (hash && hash.includes("type=recovery")) {
-          // The Supabase client may have already processed the hash on init.
-          // Wait briefly then check for an active session.
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          const { data: { session }, error } = await supabase.auth.getSession();
-          if (session && !error) {
-            setIsRecovery(true);
-            setCheckingToken(false);
-            return;
-          }
-        }
+    if (!isHashRecovery && !isCodeRecovery) {
+      setCheckingToken(false);
+      return;
+    }
 
-        // Also check URL search params (PKCE flow uses query params with code)
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get("code");
-        const type = params.get("type");
-
-        if (code && type === "recovery") {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (!error) {
-            setIsRecovery(true);
-          } else {
-            console.error("Error exchanging code:", error.message);
-          }
-        }
-
-        setCheckingToken(false);
-      } catch (err) {
-        console.error("Recovery error:", err);
+    // Listen for auth state changes — Supabase auto-processes the hash
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && session)) {
+        setIsRecovery(true);
         setCheckingToken(false);
       }
-    };
+    });
 
-    handleRecovery();
+    // Handle PKCE code exchange
+    if (isCodeRecovery) {
+      supabase.auth.exchangeCodeForSession(code!).then(({ error }) => {
+        if (!error) {
+          setIsRecovery(true);
+        } else {
+          console.error("Error exchanging code:", error.message);
+        }
+        setCheckingToken(false);
+      });
+    }
+
+    // Fallback: if the client already processed the hash before our listener,
+    // check for an existing session after a short delay
+    if (isHashRecovery) {
+      const fallbackTimeout = setTimeout(async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setIsRecovery(true);
+        }
+        setCheckingToken(false);
+      }, 2000);
+
+      return () => {
+        clearTimeout(fallbackTimeout);
+        subscription.unsubscribe();
+      };
+    }
 
     return () => {
-      subscriptionRef?.unsubscribe();
+      subscription.unsubscribe();
     };
   }, []);
 

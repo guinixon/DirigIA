@@ -17,25 +17,18 @@ const ResetPassword = () => {
   const [checkingToken, setCheckingToken] = useState(true);
 
   useEffect(() => {
-    const handleRecovery = async () => {
-      // 🔥 Isso força o Supabase a processar o hash da URL
-      const { data, error } = await supabase.auth.exchangeCodeForSession(
-        window.location.href
-      );
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession()
 
-      if (error) {
-        console.error("Erro ao trocar código por sessão:", error.message);
-        setIsRecovery(false);
-      } else if (data.session) {
-        // 🔥 limpa a URL depois que criou sessão
-        window.history.replaceState({}, document.title, "/reset-password");
-        setIsRecovery(true);
+      if (data.session) {
+        window.history.replaceState({}, document.title, "/reset-password")
+        setIsRecovery(true)
       }
 
-      setCheckingToken(false);
-    };
+      setCheckingToken(false)
+    }
 
-    handleRecovery();
+    checkSession()
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

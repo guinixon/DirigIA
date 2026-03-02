@@ -18,16 +18,16 @@ const ResetPassword = () => {
 
   useEffect(() => {
     const handleRecovery = async () => {
-      // Força o Supabase a processar o token da URL
+      // 🔥 Isso força o Supabase a processar o hash da URL
       const { data, error } = await supabase.auth.exchangeCodeForSession(
         window.location.href
       );
 
       if (error) {
-        console.error("Erro ao processar token:", error.message);
+        console.error("Erro ao trocar código por sessão:", error.message);
         setIsRecovery(false);
       } else if (data.session) {
-        // Limpa a URL depois que o token for consumido
+        // 🔥 limpa a URL depois que criou sessão
         window.history.replaceState({}, document.title, "/reset-password");
         setIsRecovery(true);
       }
